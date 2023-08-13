@@ -8,16 +8,14 @@ Napi::ThreadSafeFunction globalJsCallbackKeyDown;
 Napi::ThreadSafeFunction globalJsCallbackKeyUp;
 
 // Global variable to store the previous key state
-bool isKeyPressed = false;
 bool handleKeyUp = false;
 bool handleKeyDown = false;
 bool monitorThreadRunning = false;
-int previousKeyState;
 LRESULT CALLBACK KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
   if (nCode >= 0)
   {
-    if (wParam == WM_KEYDOWN)
+    if (wParam == WM_SYSKEYDOWN || wParam == WM_KEYDOWN)
     {
       KBDLLHOOKSTRUCT *kbdStruct = (KBDLLHOOKSTRUCT *)lParam;
       int keyCode = kbdStruct->vkCode;
@@ -25,40 +23,32 @@ LRESULT CALLBACK KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam)
       // Handle the keyCode here or call your JavaScript callback
       // std::cout << "Key Code: " << keyCode << std::endl;
 
-      if (keyCode != previousKeyState || !isKeyPressed)
+      if (handleKeyDown)
       {
-        isKeyPressed = true;
-        previousKeyState = keyCode;
-        if (handleKeyDown)
+        int *keyCodeCopy = new int(keyCode); // Create a copy of the keyCode value
+
+        napi_status status = globalJsCallbackKeyDown.BlockingCall(
+            keyCodeCopy,
+            [](Napi::Env env, Napi::Function jsCallback, int *keyCodePtr)
+            {
+              Napi::HandleScope scope(env);
+              int keyCode = *keyCodePtr;
+              jsCallback.Call({Napi::Number::New(env, keyCode)});
+              delete keyCodePtr; // Clean up the dynamically allocated keyCode copy
+            });
+
+        if (status != napi_ok)
         {
-          int *keyCodeCopy = new int(keyCode); // Create a copy of the keyCode value
-
-          napi_status status = globalJsCallbackKeyDown.BlockingCall(
-              keyCodeCopy,
-              [](Napi::Env env, Napi::Function jsCallback, int *keyCodePtr)
-              {
-                Napi::HandleScope scope(env);
-                int keyCode = *keyCodePtr;
-                jsCallback.Call({Napi::Number::New(env, keyCode)});
-                delete keyCodePtr; // Clean up the dynamically allocated keyCode copy
-              });
-
-          if (status != napi_ok)
-          {
-            // Handle the error
-          }
+          // Handle the error
         }
       }
     }
-    else if (wParam == WM_KEYUP)
+    else if (wParam == WM_SYSKEYUP || wParam == WM_KEYUP)
     {
       KBDLLHOOKSTRUCT *kbdStruct = (KBDLLHOOKSTRUCT *)lParam;
       int keyCode = kbdStruct->vkCode;
 
-      if (keyCode == previousKeyState)
-      {
-        isKeyPressed = false;
-        if (handleKeyUp)
+      if (handleKeyUp)
         {
           int *keyCodeCopy = new int(keyCode); // Create a copy of the keyCode value
           napi_status status = globalJsCallbackKeyUp.BlockingCall(
@@ -76,7 +66,6 @@ LRESULT CALLBACK KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam)
             // Handle the error
           }
         }
-      }
     }
   }
 
